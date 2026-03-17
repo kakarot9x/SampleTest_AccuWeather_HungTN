@@ -1,4 +1,11 @@
 # =========================
+# Test Reports & Outputs
+# =========================
+output/
+allure-results/
+*.csv
+
+# =========================
 # IDEs and Editors
 # =========================
 # PyCharm / IntelliJ

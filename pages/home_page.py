@@ -1,6 +1,8 @@
 from pages.base_page import BasePage
 import logging
 
+log = logging.getLogger(__name__)
+
 class HomePage(BasePage):
     # Locators
     SEARCH_INPUT = "input.search-input"
@@ -11,21 +13,32 @@ class HomePage(BasePage):
     def accept_cookies_if_present(self):
         try:
             self.click_element(self.COOKIE_BANNER, timeout=3000)
-            logging.info("Cookie banner accepted.")
+            log.info("Cookie banner accepted.")
         except Exception:
-            logging.info("No cookie banner found.")
+            log.warning("No cookie banner found.")
 
     def search_city(self, city_name: str):
-        self.fill_text(self.SEARCH_INPUT, city_name)
+        log.info(f"Typing city: '{city_name}' to trigger AccuWeather API...")
+        search_field = self.page.locator(self.SEARCH_INPUT)
+        search_field.clear()
+        search_field.press_sequentially(city_name, delay=100)
 
-        # 1. Wait for the auto-suggest dropdown to actually appear
-        self.page.wait_for_selector(self.FIRST_RESULT, state="visible", timeout=10000)
+        log.info(f"Waiting for dropdown to show: '{city_name}'...")
+        target_result = self.page.locator(self.FIRST_RESULT, has_text=city_name).first
+        target_result.wait_for(state="visible", timeout=15000)
 
-        # 2. Click the first suggestion in the dropdown (DO NOT press Enter)
-        self.page.locator(self.FIRST_RESULT).first.click()
+        log.info("Dropdown result found! Clicking it...")
+        # force=True bypasses any invisible ad overlays intercepting the click
+        target_result.click(force=True)
 
-        # 3. Wait for the city dashboard to load before moving to the next step
+        log.info("Waiting for the new city dashboard to load...")
         self.page.wait_for_load_state("domcontentloaded")
 
     def go_to_daily_forecast(self):
-        self.click_element(self.DAILY_MENU)
+        log.info("Waiting for the Daily menu button to appear...")
+        # Wait for the button to actually be attached to the new page
+        self.page.wait_for_selector(self.DAILY_MENU, state="attached", timeout=15000)
+
+        log.info("Clicking Daily forecast menu...")
+        # Use force=True just in case a sticky header/ad is floating over it
+        self.page.locator(self.DAILY_MENU).click(force=True)
