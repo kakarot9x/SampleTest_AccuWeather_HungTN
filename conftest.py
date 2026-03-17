@@ -9,6 +9,7 @@ from pages.home_page import HomePage
 
 log = logging.getLogger(__name__)
 STATE_FILE = "state.json"
+LOCK_FILE = "state.lock"
 
 # Log File Configuration
 def pytest_configure(config):
@@ -51,16 +52,17 @@ def page(request):
     headless_mode = request.config.getoption("--headless")
     browser_name = request.config.getoption("--browser-type")
 
-    # 1. Dynamically build Launch Arguments
     launch_args = []
     launch_kwargs = {"headless": headless_mode}
 
     if not headless_mode:
-        # ONLY pass start-maximized. Forcing coordinates fights the OS maximize command.
         launch_args.append("--start-maximized")
-
         if browser_name == "chromium":
             launch_kwargs["channel"] = "chrome"
+    else:
+        # THE FIX for ERR_HTTP2_PROTOCOL_ERROR in CI:
+        # Force HTTP/1.1 to bypass aggressive WAF rules on GitHub Actions
+        launch_args.append("--disable-http2")
 
     launch_kwargs["args"] = launch_args
 
@@ -68,41 +70,54 @@ def page(request):
         browser_type = getattr(p, browser_name)
         browser = browser_type.launch(**launch_kwargs)
 
-        # 2. Build Context Arguments
         context_kwargs = {
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "permissions": ["geolocation"]
         }
 
-        # 3. Handle Viewport / Maximization properly
         if headless_mode:
             context_kwargs["viewport"] = {"width": 1920, "height": 1080}
         else:
-            # Tell Playwright to completely abandon internal resolution constraints
             context_kwargs["no_viewport"] = True
 
-        # 4. ONE-TIME SETUP (Only runs if state.json is missing)
+        # ==========================================
+        # ONE-TIME SETUP WITH PARALLEL LOCKING
+        # ==========================================
         if not os.path.exists(STATE_FILE):
-            setup_context = browser.new_context(**context_kwargs)
-            setup_page = setup_context.new_page()
-            setup_home = HomePage(setup_page)
+            # If another worker is already building the state, wait for it
+            if os.path.exists(LOCK_FILE):
+                while not os.path.exists(STATE_FILE):
+                    time.sleep(1)  # Wait 1 second and check again
+            else:
+                # Claim the lock! This worker will build the state.
+                open(LOCK_FILE, 'w').close()
 
-            setup_home.navigate("https://www.accuweather.com")
-            setup_home.accept_cookies_if_present()
-            setup_home.configure_fahrenheit()
+                try:
+                    setup_context = browser.new_context(**context_kwargs)
+                    setup_page = setup_context.new_page()
+                    setup_home = HomePage(setup_page)
 
-            setup_context.storage_state(path=STATE_FILE)
-            setup_context.close()
+                    setup_home.navigate("https://www.accuweather.com")
+                    setup_home.accept_cookies_if_present()
+                    setup_home.configure_fahrenheit()
 
-        # 5. STANDARD TEST CONTEXT (Injects the saved state)
+                    setup_context.storage_state(path=STATE_FILE)
+                    setup_context.close()
+                finally:
+                    # Clean up the lock file so we don't block future runs
+                    if os.path.exists(LOCK_FILE):
+                        os.remove(LOCK_FILE)
+
+        # ==========================================
+        # STANDARD TEST CONTEXT
+        # ==========================================
         context = browser.new_context(
             **context_kwargs,
             storage_state=STATE_FILE
         )
 
         page = context.new_page()
-
-        yield page  # Test runs
+        yield page
 
         context.close()
         browser.close()
