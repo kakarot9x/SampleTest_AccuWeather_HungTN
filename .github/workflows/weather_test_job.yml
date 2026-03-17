@@ -1,0 +1,47 @@
+name: Hourly AccuWeather Automation
+
+# This triggers the test to run automatically
+on:
+  schedule:
+    # Standard Cron syntax for "At minute 0 past every hour"
+    - cron: '0 * * * *'
+
+  # Allows you to click a button in GitHub to run it manually at any time
+  workflow_dispatch:
+
+jobs:
+  ui-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install uv (Fast package manager)
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install Dependencies
+        run: |
+          uv venv
+          source .venv/bin/activate
+          uv pip install -r requirements.txt
+          uv run playwright install chromium --with-deps
+
+      - name: Run Pytest Framework (Headless)
+        run: |
+          source .venv/bin/activate
+          # Runs in parallel (-n 3) and headless mode specifically for CI/CD
+          uv run pytest tests/test_accuweather.py --headless -n 3
+
+      - name: Upload Test Output & CSVs
+        if: always() # Uploads the CSVs and Logs even if the test fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: accuweather-test-results
+          path: output/
+          retention-days: 7
