@@ -1,3 +1,5 @@
+import time
+
 import pytest
 import allure
 import os
@@ -52,7 +54,10 @@ def page(request):
     headless_mode = request.config.getoption("--headless")
     browser_name = request.config.getoption("--browser-type")
 
-    launch_args = []
+    # 1. Anti-Bot Launch Arguments
+    launch_args = [
+        "--disable-blink-features=AutomationControlled"  # Hides Playwright from basic bot detectors
+    ]
     launch_kwargs = {"headless": headless_mode}
 
     if not headless_mode:
@@ -60,8 +65,7 @@ def page(request):
         if browser_name == "chromium":
             launch_kwargs["channel"] = "chrome"
     else:
-        # THE FIX for ERR_HTTP2_PROTOCOL_ERROR in CI:
-        # Force HTTP/1.1 to bypass aggressive WAF rules on GitHub Actions
+        # THE FIX FOR GITHUB ACTIONS HTTP/2 ERROR
         launch_args.append("--disable-http2")
 
     launch_kwargs["args"] = launch_args
@@ -72,7 +76,8 @@ def page(request):
 
         context_kwargs = {
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "permissions": ["geolocation"]
+            "permissions": ["geolocation"],
+            "ignore_https_errors": True  # Prevents SSL handshake failures in CI
         }
 
         if headless_mode:
@@ -84,14 +89,15 @@ def page(request):
         # ONE-TIME SETUP WITH PARALLEL LOCKING
         # ==========================================
         if not os.path.exists(STATE_FILE):
-            # If another worker is already building the state, wait for it
+            # Check if another worker is already creating the state file
             if os.path.exists(LOCK_FILE):
+                print("\n[INFO] Another worker is setting up state. Waiting...")
                 while not os.path.exists(STATE_FILE):
-                    time.sleep(1)  # Wait 1 second and check again
+                    time.sleep(1)  # Wait in 1-second increments
             else:
-                # Claim the lock! This worker will build the state.
+                # Claim the lock so other workers wait
                 open(LOCK_FILE, 'w').close()
-
+                print("\n[INFO] Lock claimed. Performing global setup...")
                 try:
                     setup_context = browser.new_context(**context_kwargs)
                     setup_page = setup_context.new_page()
@@ -103,8 +109,9 @@ def page(request):
 
                     setup_context.storage_state(path=STATE_FILE)
                     setup_context.close()
+                    print("[INFO] Setup complete. State saved.")
                 finally:
-                    # Clean up the lock file so we don't block future runs
+                    # Always clean up the lock file, even if the setup fails
                     if os.path.exists(LOCK_FILE):
                         os.remove(LOCK_FILE)
 
