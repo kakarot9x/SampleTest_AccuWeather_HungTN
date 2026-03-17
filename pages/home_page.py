@@ -17,6 +17,32 @@ class HomePage(BasePage):
         except Exception:
             log.warning("No cookie banner found.")
 
+    def configure_fahrenheit(self):
+        log.info("Navigating to dedicated settings page to force Fahrenheit...")
+        # 1. Go directly to the settings route
+        self.navigate("https://www.accuweather.com/en/settings")
+        self.page.wait_for_load_state("domcontentloaded")
+
+        try:
+            # 2. Find the <select> dropdown that contains the "F" option
+            unit_dropdown = self.page.locator("select", has=self.page.locator("option[value='F']")).first
+
+            if unit_dropdown.count() > 0:
+                # Use Playwright's native select_option method (selects by the value attribute)
+                unit_dropdown.select_option("F")
+                log.info("Forced browser to Fahrenheit successfully.")
+
+                # Give AccuWeather 2 seconds to save the cookie/preference before navigating away
+                self.page.wait_for_timeout(2000)
+            else:
+                log.warning("Could not find the unit dropdown on the settings page.")
+        except Exception as e:
+            log.warning(f"Error while setting Fahrenheit: {e}")
+
+        # 3. Return to home page to continue the test
+        log.info("Returning to home page...")
+        self.navigate("https://www.accuweather.com")
+
     def search_city(self, city_name: str):
         log.info(f"Typing city: '{city_name}' to trigger AccuWeather API...")
         search_field = self.page.locator(self.SEARCH_INPUT)

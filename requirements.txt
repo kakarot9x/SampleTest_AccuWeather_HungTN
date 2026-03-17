@@ -5,3 +5,4 @@ pandas>=2.2.0
 allure-pytest>=2.13.2
 pytest-rerunfailures>=13.0
 pytest-xdist>=3.5.0
+pytest-html>=4.2.0

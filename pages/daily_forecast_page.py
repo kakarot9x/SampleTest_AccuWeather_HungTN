@@ -1,48 +1,71 @@
 from pages.base_page import BasePage
 import re
 
+
 class DailyForecastPage(BasePage):
     # Locators
     DAILY_WRAPPER = ".daily-wrapper"
-    DAILY_CARDS = ".daily-wrapper .daily-forecast-card"  # Adjusted for better specificity
+    DAILY_CARDS = ".daily-wrapper .daily-forecast-card"
+    TOP_SUMMARY = ".page-title, .title, h1"  # Generic headers for the top date range
 
     def _convert_f_to_c(self, f_temp: int) -> int:
+        """Mathematical conversion from Fahrenheit to Celsius"""
         return round((f_temp - 32) * 5.0 / 9.0)
 
-    def extract_forecast_data(self, limit=5):
-        # Wait for the cards to exist in the DOM
-        self.page.wait_for_selector(".daily-wrapper .daily-forecast-card", state="attached", timeout=15000)
-        cards = self.page.locator(".daily-wrapper .daily-forecast-card").all()
+    def extract_forecast_data(self):
+        # 1. Wait for the wrappers to load
+        self.page.wait_for_selector(self.DAILY_WRAPPER, state="attached", timeout=15000)
 
+        # 2. Extract Top Page Summary (e.g., "March 18 - April 16")
+        summary_loc = self.page.locator(".module-title").first
+        top_summary = summary_loc.text_content().strip() if summary_loc.count() > 0 else "Summary Not Found"
+
+        # 3. Get ALL available day wrappers
+        wrappers = self.page.locator(self.DAILY_WRAPPER).all()
         weather_data = []
-        for i, card in enumerate(cards[:limit]):
-            # 1. Defensive Date (Cleaned up with regex)
-            date_loc = card.locator(".date").first
-            if date_loc.count() > 0:
-                raw_date = date_loc.text_content().strip()
-                date_text = re.sub(r'\s+', ' ', raw_date)  # Turns "Tue \t\t 3/17" into "Tue 3/17"
-            else:
-                date_text = f"Day {i + 1}"
 
-            # 2. Defensive High Temp
-            high_loc = card.locator(".high").first
-            high_temp_str = high_loc.text_content().strip() if high_loc.count() > 0 else "N/A"
+        for i, wrapper in enumerate(wrappers):
+            # Extract Date (e.g., "Wed 3/18")
+            date_loc = wrapper.locator("h2.date").first
+            day_value = re.sub(r'\s+', ' ', date_loc.text_content().strip()) if date_loc.count() > 0 else f"Day {i + 1}"
 
-            # 3. THE FIX: Defensive Phrase
-            phrase_loc = card.locator(".phrase").first
-            weather_desc = phrase_loc.text_content().strip() if phrase_loc.count() > 0 else "N/A"
+            # Extract Temps
+            high_loc = wrapper.locator(".temp .high").first
+            high_temp = high_loc.text_content().strip() if high_loc.count() > 0 else "N/A"
 
-            # 4. Defensive Real Feel
-            panel = card.locator(".half-day-card.day").first
-            real_feel_loc = panel.locator(".real-feel").first
-            real_feel = real_feel_loc.text_content().strip() if real_feel_loc.count() > 0 else "N/A"
+            low_loc = wrapper.locator(".temp .low").first
+            low_temp = low_loc.text_content().replace("/", "").strip() if low_loc.count() > 0 else "N/A"
 
-            # Add to your list
+            # Extract Phrase
+            phrase_loc = wrapper.locator(".phrase").first
+            condition = phrase_loc.text_content().strip() if phrase_loc.count() > 0 else "N/A"
+
+            # Extract RealFeel
+            rf_loc = wrapper.locator(".panel-item:has-text('RealFeel®') .value").first
+            real_feel = rf_loc.text_content().strip() if rf_loc.count() > 0 else "N/A"
+
+            # 4. Temperature Validation Logic (Using High Temp)
+            raw_temp = re.sub(r'[^\d\-]', '', high_temp)  # Strip out "°" or "F"
+            temp_f = "N/A"
+            temp_c_calc = "N/A"
+
+            if raw_temp:
+                try:
+                    temp_f = int(raw_temp)
+                    temp_c_calc = self._convert_f_to_c(temp_f)
+                except ValueError:
+                    pass
+
+            # Append to master list
             weather_data.append({
-                "Date": date_text,
-                "High_Temp": high_temp_str,
-                "Condition": weather_desc,
-                "Real_Feel": real_feel
+                "Top_Page_Summary": top_summary,
+                "Day_Value": day_value,
+                "High_Temp": high_temp,
+                "Low_Temp": low_temp,
+                "Condition": condition,
+                "RealFeel": real_feel,
+                "Extracted_Integer_F": temp_f,
+                "Calculated_Celsius": temp_c_calc
             })
 
         return weather_data

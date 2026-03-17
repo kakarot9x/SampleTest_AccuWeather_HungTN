@@ -11,7 +11,7 @@ class BasePage:
         log.info(f"Navigating to {url}")
         self.page.goto(url)
 
-    def click_element(self, selector: str, timeout=15000): # Updated to 15 seconds
+    def click_element(self, selector: str, timeout=15000):
         log.info(f"Clicking element: {selector}")
         self.page.locator(selector).click(timeout=timeout)
 

@@ -21,11 +21,14 @@ cd "$PROJECT_DIR"
 # Note: Swapped pytest-html for allure-pytest
 echo "📝 Creating requirements.txt..."
 cat << 'EOF' > requirements.txt
-pytest==8.0.0
-playwright==1.41.0
-pytest-playwright==0.4.3
-pandas==2.2.0
-allure-pytest==2.13.2
+pytest>=8.0.0
+playwright>=1.42.0
+pytest-playwright>=0.5.0
+pandas>=2.2.0
+allure-pytest>=2.13.2
+pytest-rerunfailures>=13.0
+pytest-xdist>=3.5.0
+pytest-html>=4.2.0
 EOF
 
 # 4. Create a virtual environment using uv
