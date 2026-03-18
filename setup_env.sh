@@ -3,11 +3,11 @@
 set -e
 
 PROJECT_DIR="weather_tests"
-echo "🚀 Starting environment setup in './$PROJECT_DIR'..."
+echo " Starting environment setup in './$PROJECT_DIR'..."
 
 # 1. Install uv if it is not already installed
 if ! command -v uv &> /dev/null; then
-    echo "📦 'uv' not found. Installing astral-sh/uv..."
+    echo " 'uv' not found. Installing astral-sh/uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
     # Source the environment so uv is available in this session
     source "$HOME/.local/bin/env" 2>/dev/null || source "$HOME/.cargo/env" 2>/dev/null
@@ -19,7 +19,7 @@ cd "$PROJECT_DIR"
 
 # 3. Create requirements.txt
 # Note: Swapped pytest-html for allure-pytest
-echo "📝 Creating requirements.txt..."
+echo " Creating requirements.txt..."
 cat << 'EOF' > requirements.txt
 allure-python-commons>=2.15.3
 pytest>=8.0.0
@@ -34,7 +34,7 @@ playwright-stealth>=2.0.2
 EOF
 
 # 4. Create a virtual environment using uv
-echo "🛠️ Creating virtual environment..."
+echo " Creating virtual environment..."
 uv venv
 
 # 5. Activate the virtual environment
@@ -42,17 +42,17 @@ uv venv
 source .venv/bin/activate
 
 # 6. Install dependencies from requirements.txt using uv's lightning-fast pip
-echo "📥 Installing dependencies..."
+echo " Installing dependencies..."
 uv pip install -r requirements.txt
 
 # 7. Install Playwright Chromium browser inside the venv
-echo "🌐 Installing Playwright Chromium..."
+echo " Installing Playwright Chromium..."
 playwright install chromium
 
 echo "============================================================"
-echo "✅ Environment setup complete!"
+echo " Environment setup complete!"
 echo ""
-echo "👉 Next steps before you write your test:"
+echo " Next steps before you write your test:"
 echo "   1. cd $PROJECT_DIR"
 echo "   2. Activate the environment: source .venv/bin/activate"
 echo "============================================================"

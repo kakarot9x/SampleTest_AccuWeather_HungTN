@@ -45,15 +45,16 @@ weather_tests/
 └── README.md
 ```
 
-## ⚠️ CI/CD execution notice
-* **The situation**
-  * Local (Pass): Tests work perfectly on residential/office IPs. 
-  * GitHub Actions (Fail): AccuWeather blocks "Cloud IPs" (Azure/GitHub) to prevent bot scraping.
+## ⚠️ CI/CD Execution Notice
 
-* **Why it happens**
-  - AccuWeather’s security (Akamai/Cloudflare) identifies the GitHub runner as a data center bot. Even with our "stealth" code, the site intentionally hangs the connection (Tarpitting) or returns empty results to stop us.
+### The Situation
+* **Local (Pass):** Tests pass consistently in **Headed** mode.
+* **GitHub Actions (Block):** AccuWeather's security (Akamai/Cloudflare) often blocks Headless browsers or Data Center IPs (GitHub/Azure) to prevent scraping.
 
-* **How to fix (Production)**
-  * To get a green pipeline in a professional environment, you would need:
-  * Residential Proxies: Route traffic through "real" home IPs.
-  * Self-Hosted Runners: Run the tests on a private machine with a whitelisted IP.
+### Why it happens
+The website identifies the GitHub runner as a bot. 
+It responds by "Tarpitting" (freezing) the connection or showing "No Results," which causes timeouts in headless environments.
+
+### Current Workaround
+We use **XVFB (Virtual Frame Buffer)** in GitHub Actions to simulate a headed browser environment, 
+which bypasses the most basic headless detection filters.

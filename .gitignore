@@ -31,15 +31,6 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
-# =========================
 # Test Reports & Outputs
-# =========================
 # Ignore downloaded browsers from Playwright (if downloaded locally)
 test-results/
-
-# Allure raw data and Pytest-HTML reports
-allure-results/
-report.html
-
-# Generated weather data files
-*.csv

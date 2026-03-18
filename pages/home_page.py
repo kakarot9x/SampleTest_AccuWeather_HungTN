@@ -44,51 +44,73 @@ class HomePage(BasePage):
         log.info("Returning to home page...")
         self.navigate("https://www.accuweather.com")
 
+    # def search_city(self, city_name: str):
+    #     log.info(f"========== SEARCHING FOR: {city_name} ==========")
+    #
+    #     encoded_city = city_name.replace(" ", "%20")
+    #     search_url = f"https://www.accuweather.com/en/search-locations?query={encoded_city}"
+    #
+    #     log.info(f"Bypassing search bar. Navigating to search route: {search_url}")
+    #     self.page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
+    #
+    #     if "weather-forecast" in self.page.url or "current-weather" in self.page.url:
+    #         log.info(f"Directly arrived at forecast page: {self.page.url}")
+    #         return
+    #
+    #     log.info("Landed on search results page. Searching for city links...")
+    #
+    #     result_selectors = [
+    #         ".search-results a",
+    #         ".find-location-list a",
+    #         ".locations-list a",
+    #         "a.search-result"
+    #     ]
+    #     super_locator = self.page.locator(", ".join(result_selectors))
+    #
+    #     try:
+    #         # 1. Wait for the link to exist in the HTML
+    #         super_locator.first.wait_for(state="attached", timeout=15000)
+    #
+    #         # 2. Find the specific city link
+    #         final_link = super_locator.filter(has_text=re.compile(city_name, re.IGNORECASE)).first
+    #         actual_city = final_link.text_content().strip().split("\n")[-1]
+    #         log.info(f"Selecting result: {actual_city.lstrip()}")
+    #
+    #         # Use evaluate to click via JavaScript to ignores 'Breaking News' banners or ads that overlap the link.
+    #         final_link.evaluate("el => el.click()")
+    #
+    #         # 3. Use a soft wait for navigation
+    #         self.page.wait_for_load_state("domcontentloaded", timeout=15000)
+    #
+    #     except Exception as e:
+    #         if "No results found" in self.page.content():
+    #             pytest.fail(f"WAF Block: AccuWeather returned an empty search page for {city_name}.")
+    #         log.error(f"Failed to interact with search results: {e}")
+    #         raise
     def search_city(self, city_name: str):
-        log.info(f"========== SEARCHING FOR: {city_name} ==========")
+        log.info(f"Searching for city: '{city_name}'...")
 
-        encoded_city = city_name.replace(" ", "%20")
-        search_url = f"https://www.accuweather.com/en/search-locations?query={encoded_city}"
+        # 1. Focus and Clear the search bar
+        search_input = self.page.locator("input.search-input")
+        search_input.click()
+        search_input.clear()
 
-        log.info(f"Bypassing search bar. Navigating to search route: {search_url}")
-        self.page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
+        # 2. Type like a human (100ms between keys triggers the dropdown naturally)
+        search_input.press_sequentially(city_name, delay=100)
 
-        if "weather-forecast" in self.page.url or "current-weather" in self.page.url:
-            log.info(f"Directly arrived at forecast page: {self.page.url}")
-            return
+        # 3. Wait for the dropdown to actually show up in the HTML
+        dropdown_item = self.page.locator(".search-bar-result").filter(
+            has_text=re.compile(city_name, re.IGNORECASE)).first
+        dropdown_item.wait_for(state="attached", timeout=10000)
 
-        log.info("Landed on search results page. Searching for city links...")
+        log.info(f"Selecting '{city_name}' from dropdown...")
 
-        result_selectors = [
-            ".search-results a",
-            ".find-location-list a",
-            ".locations-list a",
-            "a.search-result"
-        ]
-        super_locator = self.page.locator(", ".join(result_selectors))
+        # 4. Perform a 'Force Click'
+        # This clicks the result even if an ad or 'Breaking News' banner is slightly overlapping it
+        dropdown_item.click(force=True)
 
-        try:
-            # 1. Wait for the link to exist in the HTML
-            super_locator.first.wait_for(state="attached", timeout=15000)
-
-            # 2. Find the specific city link
-            final_link = super_locator.filter(has_text=re.compile(city_name, re.IGNORECASE)).first
-
-            log.info(f"Selecting result: {final_link.text_content().strip()}")
-
-            # THE CRITICAL FIX: Use evaluate to click via JavaScript.
-            # This ignores 'Breaking News' banners or ads that overlap the link.
-            final_link.evaluate("el => el.click()")
-
-            # 3. Use a soft wait for navigation
-            self.page.wait_for_load_state("domcontentloaded", timeout=15000)
-
-        except Exception as e:
-            if "No results found" in self.page.content():
-                pytest.fail(f"WAF Block: AccuWeather returned an empty search page for {city_name}.")
-            log.error(f"Failed to interact with search results: {e}")
-            raise
-
+        # 5. Wait for the page to transition
+        self.page.wait_for_load_state("domcontentloaded")
 
     def go_to_daily_forecast(self):
         """Clicks the Daily menu to view the extended forecast."""

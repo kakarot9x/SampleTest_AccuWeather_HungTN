@@ -6,12 +6,13 @@ from pages.base_page import BasePage
 # Initialize logger
 log = logging.getLogger(__name__)
 
+def _convert_f_to_c(f_temp: int) -> int:
+    return round((f_temp - 32) * 5.0 / 9.0)
+
+
 class DailyForecastPage(BasePage):
     DAILY_WRAPPER = ".daily-wrapper"
     TOP_SUMMARY = ".page-title, .title, h1"
-
-    def _convert_f_to_c(self, f_temp: int) -> int:
-        return round((f_temp - 32) * 5.0 / 9.0)
 
     def extract_forecast_data(self) -> List[Dict]:
         log.info("Waiting for daily forecast wrapper to load...")
@@ -48,7 +49,7 @@ class DailyForecastPage(BasePage):
             if raw_temp:
                 try:
                     temp_f = int(raw_temp)
-                    temp_c_calc = self._convert_f_to_c(temp_f)
+                    temp_c_calc = _convert_f_to_c(temp_f)
                 except ValueError:
                     pass
 

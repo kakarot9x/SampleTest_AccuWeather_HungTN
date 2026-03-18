@@ -60,16 +60,26 @@ def page(request):
     headless_mode = request.config.getoption("--headless")
     browser_name = request.config.getoption("--browser-type")
 
-    launch_args = ["--disable-blink-features=AutomationControlled"]
-    launch_kwargs = {"headless": headless_mode}
+    launch_args = [
+        "--disable-blink-features=AutomationControlled",
+        "--start-maximized"
+    ]
+    launch_kwargs = {
+        "headless": headless_mode,
+        # Force the "New" headless mode which is harder to detect
+        "args": launch_args + (["--headless=new"] if headless_mode else [])
+    }
 
     # OS Window/Network optimizations based on execution mode
-    if not headless_mode:
-        launch_args.append("--start-maximized")
-        if browser_name == "chromium":
-            launch_kwargs["channel"] = "chrome"
+    if not headless_mode and browser_name == "chromium":
+        launch_kwargs["channel"] = "chrome"
     else:
-        launch_args.append("--disable-http2")
+        launch_args.extend([
+            "--use-gl=desktop", # Triggers real-looking GPU signals
+            "--window-size=1920,1080",
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+        ])
 
     launch_kwargs["args"] = launch_args
 
@@ -129,7 +139,12 @@ def page(request):
             screenshot_path = os.path.join(screenshot_dir, f"{safe_test_name}.png")
 
             try:
-                test_page.screenshot(path=screenshot_path, timeout=5000)
+                # Add 'timeout' and 'animations: "disabled"'
+                test_page.screenshot(
+                    path=screenshot_path,
+                    timeout=3000,
+                    animations="disabled"
+                )
                 log.error(f"Test failed! Screenshot saved: {screenshot_path}")
                 allure.attach.file(
                     screenshot_path,
