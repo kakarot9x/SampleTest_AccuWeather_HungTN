@@ -1,9 +1,13 @@
-from playwright.sync_api import Page
 import logging
+from playwright.sync_api import Page
 
+# Initialize logger
 log = logging.getLogger(__name__)
 
+
 class BasePage:
+    """Base class containing common Playwright interactions."""
+
     def __init__(self, page: Page):
         self.page = page
 
@@ -11,7 +15,7 @@ class BasePage:
         log.info(f"Navigating to {url}")
         self.page.goto(url)
 
-    def click_element(self, selector: str, timeout=15000):
+    def click_element(self, selector: str, timeout: int = 15000):
         log.info(f"Clicking element: {selector}")
         self.page.locator(selector).click(timeout=timeout)
 

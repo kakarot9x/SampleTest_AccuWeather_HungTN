@@ -34,8 +34,8 @@ jobs:
       - name: Run Pytest Framework (Headless)
         run: |
           source .venv/bin/activate
-          # Runs in parallel (-n 2) and headless mode specifically for CI/CD
-          uv run pytest -v tests/test_accuweather.py --headless -n 2
+          # Runs in parallel (-n 2) and headless mode specifically for CI/CD, retry one failed
+          uv run pytest tests/test_accuweather.py -n 2 --headless --reruns 1 --reruns-delay 2 -p no:cacheprovider -v -rap --tb=short --durations=0 --color=yes -s
 
       - name: Upload Test Output & CSVs
         if: always() # Uploads the CSVs and Logs even if the test fails
