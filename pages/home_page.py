@@ -55,16 +55,18 @@ class HomePage(BasePage):
         time.sleep(0.5)
 
         log.info(f"Waiting for dropdown item matching: '{city_name}'...")
+        # Now wait for the specific result to appear in the DOM
         dropdown_result = self.page.locator(
             self.FIRST_RESULT,
             has_text=re.compile(city_name, re.IGNORECASE)
         ).first
 
-        dropdown_result.wait_for(state="visible", timeout=15000)
+        # Ignores headless CSS rendering issues and grabs the element the millisecond it exists in the HTML.
+        dropdown_result.wait_for(state="attached", timeout=15000)
 
-        # Extract URL directly from the DOM to bypass AccuWeather tracking redirects
+        # Added 'data-link' to the extraction evaluation based on the CI logs
         target_path = dropdown_result.evaluate(
-            "(el) => el.getAttribute('href') || el.getAttribute('data-href') || (el.querySelector('a') ? el.querySelector('a').getAttribute('href') : null)"
+            "(el) => el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-link') || (el.querySelector('a') ? el.querySelector('a').getAttribute('href') : null)"
         )
 
         if target_path:
@@ -75,11 +77,13 @@ class HomePage(BasePage):
             self.page.wait_for_load_state("domcontentloaded")
         else:
             log.warning(f"Could not extract URL for {city_name}. Executing safe click fallback.")
-            dropdown_result.click()
+            # TAdd force=True so Playwright clicks it even if it thinks it is hidden
+            dropdown_result.click(force=True, no_wait_after=True)
             try:
                 self.page.wait_for_load_state("domcontentloaded", timeout=15000)
             except Exception:
                 log.info("DOM load timed out during fallback click, proceeding to validation.")
+
 
     def go_to_daily_forecast(self):
         """Clicks the Daily menu to view the extended forecast."""
