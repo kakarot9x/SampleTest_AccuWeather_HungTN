@@ -35,7 +35,7 @@ jobs:
         run: |
           source .venv/bin/activate
           xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-            uv run pytest tests/test_accuweather.py -n 3 --headless --reruns 1 --reruns-delay 3 -p no:cacheprovider -v -rap --tb=short --durations=0 --color=yes -s
+            uv run pytest tests/test_accuweather.py -n 3 --reruns 1 --reruns-delay 3 -p no:cacheprovider -v -rap --tb=short --durations=0 --color=yes -s
 
       - name: Upload Test Output & CSVs
         if: always() # Uploads the CSVs and Logs even if the test fails
