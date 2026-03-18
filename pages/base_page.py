@@ -13,7 +13,8 @@ class BasePage:
 
     def navigate(self, url: str):
         log.info(f"Navigating to {url}")
-        self.page.goto(url)
+        # Stop waiting for heavy ads to load. Just wait for the DOM.
+        self.page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
     def click_element(self, selector: str, timeout: int = 15000):
         log.info(f"Clicking element: {selector}")

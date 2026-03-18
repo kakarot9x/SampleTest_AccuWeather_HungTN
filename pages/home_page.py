@@ -74,8 +74,8 @@ class HomePage(BasePage):
             self.page.goto(target_url, wait_until="commit", timeout=20000)
             self.page.wait_for_load_state("domcontentloaded")
         else:
-            log.debug(f"Could not extract URL for {city_name}. Executing safe click fallback.")
-            dropdown_result.click(no_wait_after=True)
+            log.warning(f"Could not extract URL for {city_name}. Executing safe click fallback.")
+            dropdown_result.click()
             try:
                 self.page.wait_for_load_state("domcontentloaded", timeout=15000)
             except Exception:
