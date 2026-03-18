@@ -89,7 +89,11 @@ def page(request):
 
         context_kwargs = {
             "permissions": ["geolocation"],
-            "ignore_https_errors": True
+            "ignore_https_errors": True,
+            # Add the geolocation data directly here!
+            "geolocation": {"latitude": 10.8671, "longitude": 106.6413},
+            "locale": "vi-VN",
+            "timezone_id": "Asia/Ho_Chi_Minh"
         }
 
         if headless_mode:
