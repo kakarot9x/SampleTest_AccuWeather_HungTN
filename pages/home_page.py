@@ -61,18 +61,35 @@ class HomePage(BasePage):
             has_text=re.compile(city_name, re.IGNORECASE)
         ).first
 
-        # Ignores headless CSS rendering issues and grabs the element the millisecond it exists in the HTML.
         dropdown_result.wait_for(state="attached", timeout=15000)
 
-        # Added 'data-link' to the extraction evaluation based on the CI logs
-        target_path = dropdown_result.evaluate(
-            "(el) => el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-link') || (el.querySelector('a') ? el.querySelector('a').getAttribute('href') : null)"
-        )
+        # We extract both the potential link AND the raw location key
+        target_data = dropdown_result.evaluate("""(el) => {
+            return {
+                link: el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-link'),
+                key: el.getAttribute('data-location-key')
+            }
+        }""")
 
-        if target_path:
-            target_url = f"https://www.accuweather.com{target_path}" if target_path.startswith("/") else target_path
-            log.info(f"Extracted URL successfully. Navigating directly to: {target_url}")
+        if target_data and target_data['link']:
+            target_link = target_data['link']
 
+            # THE ULTIMATE BYPASS: If they try to route us through the trap, build the URL manually!
+            if "/web-api/three-day-redirect" in target_link and target_data['key']:
+                location_key = target_data['key']
+                # Create a safe URL string (e.g., "New York" -> "new-york")
+                safe_city = city_name.lower().replace(" ", "-")
+
+                # Build the direct URL. (AccuWeather will auto-correct the country code if 'us' is wrong)
+                target_url = f"https://www.accuweather.com/en/us/{safe_city}/{location_key}/weather-forecast/{location_key}"
+                log.info(f"Detected redirect trap! Built direct URL: {target_url}")
+
+            else:
+                # If it's a normal link, use it.
+                target_url = f"https://www.accuweather.com{target_link}" if target_link.startswith("/") else target_link
+                log.info(f"Extracted normal URL successfully: {target_url}")
+
+            # Go directly to the URL, ignoring heavy ad-trackers
             self.page.goto(target_url, wait_until="commit", timeout=20000)
             self.page.wait_for_load_state("domcontentloaded")
         else:
