@@ -42,10 +42,6 @@ class HomePage(BasePage):
         self.navigate("https://www.accuweather.com")
 
     def search_city(self, city_name: str):
-        """
-        Simulates human typing to trigger the search API, identifies the correct
-        dropdown item, and extracts the target URL to bypass redirect traps.
-        """
         log.info(f"Searching for city: '{city_name}'...")
         search_input = self.page.locator(self.SEARCH_INPUT)
 
@@ -55,15 +51,17 @@ class HomePage(BasePage):
         time.sleep(0.5)
 
         log.info(f"Waiting for dropdown item matching: '{city_name}'...")
-        # Now wait for the specific result to appear in the DOM
+
+        # We look for any result that matches the city name
         dropdown_result = self.page.locator(
             self.FIRST_RESULT,
             has_text=re.compile(city_name, re.IGNORECASE)
         ).first
 
+        # Wait for it to be attached (more stable in CI than 'visible')
         dropdown_result.wait_for(state="attached", timeout=15000)
 
-        # We extract both the potential link AND the raw location key
+        # Extract the link and the specific location key
         target_data = dropdown_result.evaluate("""(el) => {
             return {
                 link: el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-link'),
@@ -74,27 +72,32 @@ class HomePage(BasePage):
         if target_data and target_data['link']:
             target_link = target_data['link']
 
-            # THE ULTIMATE BYPASS: If they try to route us through the trap, build the URL manually!
-            if "/web-api/three-day-redirect" in target_link and target_data['key']:
-                location_key = target_data['key']
-                # Create a safe URL string (e.g., "New York" -> "new-york")
-                safe_city = city_name.lower().replace(" ", "-")
+            # THE CI BYPASS: Detect if this is the poisoned redirect trap
+            if "/web-api/three-day-redirect" in target_link:
+                # Extract the 'key' (GEO coordinates or Numeric ID) from the trap link
+                match = re.search(r'key=([^&]+)', target_link)
+                key = match.group(1) if match else target_data.get('key')
 
-                # Build the direct URL. (AccuWeather will auto-correct the country code if 'us' is wrong)
-                target_url = f"https://www.accuweather.com/en/us/{safe_city}/{location_key}/weather-forecast/{location_key}"
-                log.info(f"Detected redirect trap! Built direct URL: {target_url}")
-
+                if key:
+                    # Navigate via the "Safe Search" route.
+                    # This tells AccuWeather: "I already have the ID, just show me the page."
+                    target_url = f"https://www.accuweather.com/en/search-locations?query={key}"
+                    log.info(f"Redirect trap detected! Bypassing via Safe Search URL: {target_url}")
+                else:
+                    # Final fallback: Use the city name in the safe search route
+                    target_url = f"https://www.accuweather.com/en/search-locations?query={city_name.replace(' ', '%20')}"
+                    log.info(f"Redirect trap detected but no key found. Bypassing via city name: {target_url}")
             else:
-                # If it's a normal link, use it.
+                # It's a normal direct link
                 target_url = f"https://www.accuweather.com{target_link}" if target_link.startswith("/") else target_link
                 log.info(f"Extracted normal URL successfully: {target_url}")
 
-            # Go directly to the URL, ignoring heavy ad-trackers
+            # Execute the navigation with 'commit' to prevent hanging on ad-trackers
             self.page.goto(target_url, wait_until="commit", timeout=20000)
             self.page.wait_for_load_state("domcontentloaded")
+
         else:
             log.warning(f"Could not extract URL for {city_name}. Executing safe click fallback.")
-            # TAdd force=True so Playwright clicks it even if it thinks it is hidden
             dropdown_result.click(force=True, no_wait_after=True)
             try:
                 self.page.wait_for_load_state("domcontentloaded", timeout=15000)
