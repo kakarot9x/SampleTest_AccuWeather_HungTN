@@ -1,6 +1,9 @@
 import re
 import time
 import logging
+
+import pytest
+
 from pages.base_page import BasePage
 
 # Initialize logger
@@ -42,67 +45,62 @@ class HomePage(BasePage):
         self.navigate("https://www.accuweather.com")
 
     def search_city(self, city_name: str):
-        log.info(f"Searching for city: '{city_name}'...")
-        search_input = self.page.locator(self.SEARCH_INPUT)
+        log.info(f"========== SEARCHING FOR: {city_name} ==========")
 
-        search_input.click()
-        search_input.clear()
-        search_input.press_sequentially(city_name, delay=100)
-        time.sleep(0.5)
+        # 1. THE "DEEP-LINK" BYPASS
+        # Instead of typing, we go straight to the Search Results page.
+        # This bypasses the search-bar trackers and the redirect-trap entirely.
+        encoded_city = city_name.replace(" ", "%20")
+        search_url = f"https://www.accuweather.com/en/search-locations?query={encoded_city}"
 
-        log.info(f"Waiting for dropdown item matching: '{city_name}'...")
+        log.info(f"Bypassing search bar. Navigating to search route: {search_url}")
+        # We use 'domcontentloaded' because the WAF often hangs 'load' events
+        self.page.goto(search_url, wait_until="domcontentloaded", timeout=25000)
 
-        # We look for any result that matches the city name
-        dropdown_result = self.page.locator(
-            self.FIRST_RESULT,
-            has_text=re.compile(city_name, re.IGNORECASE)
-        ).first
+        # 2. CHECK FOR DIRECT REDIRECT
+        # If there's only one London or Tokyo, AccuWeather often jumps straight to the forecast.
+        if "weather-forecast" in self.page.url or "current-weather" in self.page.url:
+            log.info(f"Directly arrived at forecast page: {self.page.url}")
+            return
 
-        # Wait for it to be attached (more stable in CI than 'visible')
-        dropdown_result.wait_for(state="attached", timeout=15000)
+        # 3. HANDLE SEARCH RESULTS PAGE
+        log.info("Landed on search results page. Searching for city links...")
 
-        # Extract the link and the specific location key
-        target_data = dropdown_result.evaluate("""(el) => {
-            return {
-                link: el.getAttribute('href') || el.getAttribute('data-href') || el.getAttribute('data-link'),
-                key: el.getAttribute('data-location-key')
-            }
-        }""")
+        # We use a broad, prioritized list of locators found across different regions
+        result_selectors = [
+            ".search-results a",
+            ".find-location-list a",
+            ".locations-list a",
+            "a.search-result"
+        ]
 
-        if target_data and target_data['link']:
-            target_link = target_data['link']
+        # Combine them into one "Super Locator"
+        super_locator = self.page.locator(", ".join(result_selectors))
 
-            # THE CI BYPASS: Detect if this is the poisoned redirect trap
-            if "/web-api/three-day-redirect" in target_link:
-                # Extract the 'key' (GEO coordinates or Numeric ID) from the trap link
-                match = re.search(r'key=([^&]+)', target_link)
-                key = match.group(1) if match else target_data.get('key')
+        try:
+            # Wait for any of these to appear in the DOM
+            super_locator.first.wait_for(state="attached", timeout=10000)
 
-                if key:
-                    # Navigate via the "Safe Search" route.
-                    # This tells AccuWeather: "I already have the ID, just show me the page."
-                    target_url = f"https://www.accuweather.com/en/search-locations?query={key}"
-                    log.info(f"Redirect trap detected! Bypassing via Safe Search URL: {target_url}")
-                else:
-                    # Final fallback: Use the city name in the safe search route
-                    target_url = f"https://www.accuweather.com/en/search-locations?query={city_name.replace(' ', '%20')}"
-                    log.info(f"Redirect trap detected but no key found. Bypassing via city name: {target_url}")
-            else:
-                # It's a normal direct link
-                target_url = f"https://www.accuweather.com{target_link}" if target_link.startswith("/") else target_link
-                log.info(f"Extracted normal URL successfully: {target_url}")
+            # Filter the links to find one that actually contains our city name
+            # This prevents us from clicking "Current Location" or "Radar" links
+            final_link = super_locator.filter(has_text=re.compile(city_name, re.IGNORECASE)).first
 
-            # Execute the navigation with 'commit' to prevent hanging on ad-trackers
-            self.page.goto(target_url, wait_until="commit", timeout=20000)
+            log.info(f"Selecting result: {final_link.text_content().strip()}")
+            final_link.click()
             self.page.wait_for_load_state("domcontentloaded")
 
-        else:
-            log.warning(f"Could not extract URL for {city_name}. Executing safe click fallback.")
-            dropdown_result.click(force=True, no_wait_after=True)
-            try:
-                self.page.wait_for_load_state("domcontentloaded", timeout=15000)
-            except Exception:
-                log.info("DOM load timed out during fallback click, proceeding to validation.")
+        except Exception:
+            # 4. CAPTCHA / BLOCK CHECK
+            if self.page.get_by_text("No results found").is_visible() or \
+                    self.page.get_by_text("Try searching for a city").is_visible():
+                log.error(f"AccuWeather WAF Block: 'No results' page displayed for {city_name}.")
+                pytest.fail("WAF Soft-Block: AccuWeather returned an empty search page.")
+
+            if self.page.locator("iframe[src*='captcha']").count() > 0:
+                pytest.fail("WAF Hard-Block: Captcha detected.")
+
+            log.error("Failed to find any result links on the search page.")
+            raise
 
 
     def go_to_daily_forecast(self):
