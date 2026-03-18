@@ -6,6 +6,7 @@ import os
 import datetime
 import logging
 from playwright.sync_api import sync_playwright
+from playwright_stealth import Stealth
 
 from pages.home_page import HomePage
 
@@ -54,9 +55,8 @@ def page(request):
     headless_mode = request.config.getoption("--headless")
     browser_name = request.config.getoption("--browser-type")
 
-    # 1. Anti-Bot Launch Arguments
     launch_args = [
-        "--disable-blink-features=AutomationControlled"  # Hides Playwright from basic bot detectors
+        "--disable-blink-features=AutomationControlled"
     ]
     launch_kwargs = {"headless": headless_mode}
 
@@ -65,19 +65,21 @@ def page(request):
         if browser_name == "chromium":
             launch_kwargs["channel"] = "chrome"
     else:
-        # THE FIX FOR GITHUB ACTIONS HTTP/2 ERROR
         launch_args.append("--disable-http2")
 
     launch_kwargs["args"] = launch_args
 
-    with sync_playwright() as p:
+    # ==========================================
+    # 2. Wrap the entire Playwright instance. It auto-applies to all contexts/pages!
+    # ==========================================
+    with Stealth().use_sync(sync_playwright()) as p:
         browser_type = getattr(p, browser_name)
         browser = browser_type.launch(**launch_kwargs)
 
         context_kwargs = {
             "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "permissions": ["geolocation"],
-            "ignore_https_errors": True  # Prevents SSL handshake failures in CI
+            "ignore_https_errors": True
         }
 
         if headless_mode:
@@ -89,18 +91,20 @@ def page(request):
         # ONE-TIME SETUP WITH PARALLEL LOCKING
         # ==========================================
         if not os.path.exists(STATE_FILE):
-            # Check if another worker is already creating the state file
             if os.path.exists(LOCK_FILE):
                 print("\n[INFO] Another worker is setting up state. Waiting...")
                 while not os.path.exists(STATE_FILE):
-                    time.sleep(1)  # Wait in 1-second increments
+                    if not os.path.exists(LOCK_FILE):
+                        pytest.fail("The primary worker crashed during setup. Aborting to prevent infinite hang.")
+                    time.sleep(1)
             else:
-                # Claim the lock so other workers wait
                 open(LOCK_FILE, 'w').close()
                 print("\n[INFO] Lock claimed. Performing global setup...")
                 try:
                     setup_context = browser.new_context(**context_kwargs)
                     setup_page = setup_context.new_page()
+
+                    # NOTE: We no longer need to call stealth on the page directly!
                     setup_home = HomePage(setup_page)
 
                     setup_home.navigate("https://www.accuweather.com")
@@ -111,7 +115,6 @@ def page(request):
                     setup_context.close()
                     print("[INFO] Setup complete. State saved.")
                 finally:
-                    # Always clean up the lock file, even if the setup fails
                     if os.path.exists(LOCK_FILE):
                         os.remove(LOCK_FILE)
 
@@ -123,8 +126,10 @@ def page(request):
             storage_state=STATE_FILE
         )
 
-        page = context.new_page()
-        yield page
+        test_page = context.new_page()
+
+        # NOTE: We no longer need to call stealth on the test page directly!
+        yield test_page
 
         context.close()
         browser.close()
