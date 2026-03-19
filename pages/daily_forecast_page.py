@@ -1,69 +1,113 @@
 import re
 import logging
-from typing import List, Dict
-from pages.base_page import BasePage
+import allure
+from playwright.sync_api import Page, TimeoutError as PlaywrightTimeoutError
 
-# Initialize logger
 log = logging.getLogger(__name__)
 
-def _convert_f_to_c(f_temp: int) -> int:
-    return round((f_temp - 32) * 5.0 / 9.0)
 
+class DailyForecastPage:
+    def __init__(self, page: Page):
+        self.page = page
+        self.day_cards = page.locator(".daily-forecast-card")
 
-class DailyForecastPage(BasePage):
-    DAILY_WRAPPER = ".daily-wrapper"
-    TOP_SUMMARY = ".page-title, .title, h1"
+    def extract_forecast_data(self, max_days=30):
+        with allure.step(f"Extracting up to {max_days} days of detailed forecast data via Crawler"):
+            log.info("Collecting daily detail links...")
+            self.day_cards.first.wait_for(state="visible", timeout=15000)
 
-    def extract_forecast_data(self) -> List[Dict]:
-        log.info("Waiting for daily forecast wrapper to load...")
-        self.page.wait_for_selector(self.DAILY_WRAPPER, state="attached", timeout=15000)
+            count = self.day_cards.count()
+            limit = min(count, max_days)
+            daily_links = []
 
-        summary_loc = self.page.locator(".module-title").first
-        top_summary = summary_loc.text_content().strip() if summary_loc.count() > 0 else "Summary Not Found"
+            # --- STEP 1: Harvest the URLs ---
+            for i in range(limit):
+                href = self.day_cards.nth(i).get_attribute("href")
+                if href:
+                    # Handle relative vs absolute URLs
+                    full_url = f"https://www.accuweather.com{href}" if href.startswith("/") else href
+                    daily_links.append(full_url)
 
-        log.info(f"Forecast Header: '{top_summary}'")
+            weather_data = []
 
-        wrappers = self.page.locator(self.DAILY_WRAPPER).all()
-        weather_data = []
+            # --- STEP 2: Navigate to each day and scrape the deep HTML ---
+            for i, url in enumerate(daily_links):
+                # Strip the base domain for day 3 and beyond to make the logs much shorter
+                display_url = url if i < 2 else url.replace("https://www.accuweather.com/", "")
 
-        for i, wrapper in enumerate(wrappers):
-            date_loc = wrapper.locator("h2.date").first
-            day_value = re.sub(r'\s+', ' ', date_loc.text_content().strip()) if date_loc.count() > 0 else f"Day {i + 1}"
+                # Smart Logging: Only print Days 1, 2, 3, and the final day to prevent log spam
+                if i < 3:
+                    log.info(f"Extracting Day {i + 1} details: {display_url}")
+                elif i == 3:
+                    log.info("... [Extracting remaining days] ...")
+                elif i == len(daily_links) - 1:
+                    log.info(f"Extracting Day {i + 1} details: {display_url}")
 
-            high_loc = wrapper.locator(".temp .high").first
-            high_temp = high_loc.text_content().strip() if high_loc.count() > 0 else "N/A"
-
-            low_loc = wrapper.locator(".temp .low").first
-            low_temp = low_loc.text_content().replace("/", "").strip() if low_loc.count() > 0 else "N/A"
-
-            phrase_loc = wrapper.locator(".phrase").first
-            condition = phrase_loc.text_content().strip() if phrase_loc.count() > 0 else "N/A"
-
-            rf_loc = wrapper.locator(".panel-item:has-text('RealFeel®') .value").first
-            real_feel = rf_loc.text_content().strip() if rf_loc.count() > 0 else "N/A"
-
-            raw_temp = re.sub(r'[^\d\-]', '', high_temp)
-            temp_f = "N/A"
-            temp_c_calc = "N/A"
-
-            if raw_temp:
                 try:
-                    temp_f = int(raw_temp)
-                    temp_c_calc = _convert_f_to_c(temp_f)
-                except ValueError:
-                    pass
+                    # Navigate to the actual full URL
+                    self.page.goto(url, timeout=20000, wait_until="domcontentloaded")
+                except Exception as e:
+                    log.warning(f"Failed to load Day {i + 1} URL: {e}")
+                    continue
 
-            weather_data.append({
-                "Top_Page_Summary": top_summary,
-                "Day_Value": day_value,
-                "High_Temp": high_temp,
-                "Low_Temp": low_temp,
-                "Condition": condition,
-                "RealFeel": real_feel,
-                "Extracted_Integer_F": temp_f,
-                "Calculated_Celsius": temp_c_calc
-            })
+                # Helper to safely grab text from the new page structure
+                def safe_text(selector, timeout=2000):
+                    try:
+                        return self.page.locator(selector).first.text_content(timeout=timeout).strip()
+                    except PlaywrightTimeoutError:
+                        return "N/A"
 
-        # Log the final count before returning the data
-        log.info(f"Successfully extracted weather data for {len(weather_data)} days.")
-        return weather_data
+                # 1. Day Value (From the breadcrumb: e.g., "Thursday, March 19")
+                day_value = safe_text(".subnav-pagination div")
+                if day_value == "N/A":
+                    day_value = f"Day {i + 1}"
+
+                # 2. Extract High Temp
+                high_temp_str = safe_text(".temperature:has-text('Hi'), .temperature")
+
+                # 3. Condition (From the first phrase block)
+                condition = safe_text(".half-day-card .phrase")
+
+                # 4. RealFeel
+                rf_raw = safe_text(".real-feel")
+                rf_match = re.search(r'(RealFeel(?:®|™)?\s*\d+°)', rf_raw, re.IGNORECASE)
+                real_feel = re.sub(r'\s+', ' ', rf_match.group(1)).strip() if rf_match else "N/A"
+
+                # 5. Humidity (Using the panel items)
+                try:
+                    # Grab all the text from the data panels (Wind, UV, etc.)
+                    all_panels = self.page.locator(".panel-item").all_inner_texts()
+                    full_panel_text = " ".join(all_panels)
+                    # Search for Humidity in the combined string
+                    hum_match = re.search(r'(Humidity[:\s]*\d+%)', full_panel_text, re.IGNORECASE)
+                    humidity = hum_match.group(1) if hum_match else "N/A"
+                except:
+                    humidity = "N/A"
+
+                # 6. Day / Night Info (Grab both half-day cards and join them)
+                try:
+                    blocks = self.page.locator(".half-day-card").all_inner_texts()
+                    clean_blocks = [re.sub(r'\s+', ' ', text).strip() for text in blocks]
+                    day_night_info = " | ".join(clean_blocks) if clean_blocks else "N/A"
+                except:
+                    day_night_info = "N/A"
+
+                # --- 7. Math Formatting ---
+                temp_match = re.search(r'\d+', high_temp_str)
+                f_val = int(temp_match.group()) if temp_match else "N/A"
+                c_val = round((f_val - 32) * 5.0 / 9.0) if f_val != "N/A" else "N/A"
+
+                data_row = {
+                    "Day_Value": day_value,
+                    "Condition": condition,
+                    "Extracted_Integer_F": f_val,
+                    "Calculated_Celsius": c_val,
+                    "RealFeel": real_feel,
+                    "Humidity": humidity,
+                    "Day_Night_Info": day_night_info
+                }
+
+                weather_data.append(data_row)
+
+            log.info(f"Successfully extracted data for {len(weather_data)} days.")
+            return weather_data

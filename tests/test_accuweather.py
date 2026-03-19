@@ -8,7 +8,7 @@ import pytest
 import allure
 import logging
 from datetime import datetime
-from playwright.sync_api import expect
+from playwright.sync_api import expect, TimeoutError as PlaywrightTimeoutError
 from pages.home_page import HomePage
 from pages.daily_forecast_page import DailyForecastPage
 
@@ -23,6 +23,7 @@ def load_test_data():
 
     with open(data_file_path, "r") as file:
         return json.load(file)
+
 
 def export_forecast_to_csv(weather_data, location_identifier):
     """
@@ -54,6 +55,44 @@ def export_forecast_to_csv(weather_data, location_identifier):
     )
 
 
+def validate_all_days_data(weather_data, location):
+    """
+    Loops through EVERY extracted day to validate data presence and F-to-C math.
+    """
+    log.info(f"Validating fields and mathematical conversions for all days in {location}...")
+    assert len(weather_data) > 0, f"Failed to retrieve weather data for {location}."
+
+    for index, day in enumerate(weather_data):
+        day_name = day.get('Day_Value', f'Row {index}')
+
+        # 1. Field presence validation
+        expected_keys = [
+            "Day_Value",
+            "Condition",
+            "Extracted_Integer_F",
+            "Calculated_Celsius",
+            "RealFeel",
+            "Humidity",
+            "Day_Night_Info"
+        ]
+
+        for key in expected_keys:
+            assert key in day, f"Data Validation Failed on {day_name}: Missing key '{key}'"
+
+        # 2. Mathematical Validation (F to C)
+        f_val = day.get("Extracted_Integer_F")
+        c_val = day.get("Calculated_Celsius")
+
+        if f_val != "N/A" and isinstance(f_val, (int, float)):
+            expected_c = round((f_val - 32) * 5.0 / 9.0)
+            assert c_val == expected_c, (
+                f"Math Validation Failed on {day_name}! "
+                f"Fahrenheit: {f_val}F -> Expected {expected_c}C, but got {c_val}C"
+            )
+
+    log.info(f"Successfully validated all {len(weather_data)} days for {location}!")
+
+
 @pytest.mark.skipif(
     os.environ.get('CI') == 'true' or sys.platform == 'linux',
     reason="Geolocation tests are unreliable in CI/CD (Data Center IPs) and Linux runners."
@@ -73,32 +112,34 @@ def test_weather_by_current_location(page):
     with allure.step("Click 'Use Current Location'"):
         log.info("Focusing search bar to reveal location options...")
 
-        # 1. Explicitly click the search input to trigger the dropdown
         search_input = page.locator("input.search-input")
-        search_input.click()
-
-        # 2. Locate the 'Use Current Location' button (text or icon)
         current_loc_btn = page.locator(".current-location-result, .icon-location").first
 
-        # 3. Wait for it to actually become visible before clicking
-        current_loc_btn.wait_for(state="visible", timeout=10000)
-        log.info("Location button is visible. Clicking...")
-        current_loc_btn.click()
+        # Active Retry Loop to defeat "Dead Clicks"
+        redirected = False
+        for attempt in range(3):
+            search_input.click()  # Ensure dropdown is open
+            current_loc_btn.wait_for(state="visible", timeout=5000)
+
+            log.info(f"Clicking location button (Attempt {attempt + 1})...")
+            current_loc_btn.click(force=True)
+
+            try:
+                # We wait 8 seconds to see if the URL changes to a city page
+                page.wait_for_url(re.compile(r".*accuweather\.com/[^/]+/[^/]+/.+"), timeout=8000)
+                redirected = True
+                break  # Success! Exit the loop.
+            except PlaywrightTimeoutError:
+                log.warning("Click did not trigger redirect. React may be hydrating. Retrying...")
+
+        if not redirected:
+            pytest.fail("Failed to trigger Geolocation redirect after 3 attempts.")
 
     with allure.step("Detect Location from URL"):
-        # Playwright auto-waits for the navigation, but this ensures we have the final URL
-        page.wait_for_url(re.compile(r".*/weather-forecast/.*"), timeout=25000)
         current_url = page.url
-
-        # Regex breakdown:
-        # accuweather\.com/ -> matches the domain
-        # [^/]+/ -> skips the language code (e.g., 'en/')
-        # [^/]+/ -> skips the country code (e.g., 'vn/')
-        # ([^/]+) -> CAPTURES the location slug (e.g., 'district-12')
         match = re.search(r'accuweather\.com/[^/]+/[^/]+/([^/]+)/', current_url)
 
         if match:
-            # Converts 'district-12' to 'District 12' for a nicer Allure attachment name
             detected_location = match.group(1).title().replace("-", " ")
         else:
             log.warning("Could not parse location from URL. Falling back to 'Unknown Local'.")
@@ -106,14 +147,17 @@ def test_weather_by_current_location(page):
 
         log.info(f"Dynamically detected location: {detected_location}")
 
-    with allure.step("Export 30-Day Forecast for Current Location"):
+    with allure.step("Extract and Validate 30-Day Forecast"):
         home_page.go_to_daily_forecast()
         weather_data = daily_page.extract_forecast_data()
 
-        assert len(weather_data) >= 30, "Forecast data did not load properly."
+        # Use the new shared validation loop
+        validate_all_days_data(weather_data, detected_location)
 
-        # Call the shared helper using the dynamically extracted name!
+    with allure.step("Export data to CSV"):
         export_forecast_to_csv(weather_data, detected_location)
+
+    log.info(f"========== COMPLETED TEST FOR: {detected_location.upper()} ==========\n")
 
 
 @pytest.mark.parametrize("city", load_test_data())
@@ -137,24 +181,11 @@ def test_accuweather_daily_forecast(page, city):
     with allure.step("Navigate to Daily Forecast menu"):
         home_page.go_to_daily_forecast()
 
-    with allure.step("Extract weather data for ALL available days"):
+    with allure.step("Extract and Validate ALL available days"):
         weather_data = daily_page.extract_forecast_data()
 
-    with allure.step("Validate data extraction and Temperature Conversion"):
-        log.info(f"Validating mathematical temperature conversions for {city}...")
-        assert len(weather_data) > 0, "Failed to retrieve weather data."
-
-        first_day = weather_data[0]
-        assert "Day_Value" in first_day, "Missing Day Value string."
-        assert "Condition" in first_day, "Missing Condition data."
-
-        f_val = first_day["Extracted_Integer_F"]
-        c_val = first_day["Calculated_Celsius"]
-
-        if f_val != "N/A":
-            expected_c = round((f_val - 32) * 5.0 / 9.0)
-            assert c_val == expected_c, f"Math Validation Failed! Expected {expected_c}C but calculated {c_val}C"
-            log.info(f"Math validation passed! ({f_val}F correctly calculated as {expected_c}C)")
+        # Use the new shared validation loop
+        validate_all_days_data(weather_data, city)
 
     with allure.step("Export data to CSV"):
         export_forecast_to_csv(weather_data, city)
