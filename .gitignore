@@ -34,3 +34,4 @@ __pycache__/
 # Test Reports & Outputs
 # Ignore downloaded browsers from Playwright (if downloaded locally)
 test-results/
+.tools/

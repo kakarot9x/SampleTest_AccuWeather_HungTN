@@ -93,10 +93,6 @@ def validate_all_days_data(weather_data, location):
     log.info(f"Successfully validated all {len(weather_data)} days for {location}!")
 
 
-@pytest.mark.skipif(
-    os.environ.get('CI') == 'true' or sys.platform == 'linux',
-    reason="Geolocation tests are unreliable in CI/CD (Data Center IPs) and Linux runners."
-)
 @allure.feature("Local Weather")
 @allure.story("Automatic Geolocation")
 def test_weather_by_current_location(page):
