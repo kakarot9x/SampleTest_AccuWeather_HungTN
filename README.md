@@ -48,7 +48,7 @@ weather_tests/
 
 ---
 
-## 🛠️ Setup & run test guide (Automatically)
+## 🛠️ Setup & run test (Automatically)
 
 This repository features fully autonomous setup scripts. 
 You do not need to manually configure virtual environments, install dependencies, or download reporting tools.
@@ -63,7 +63,7 @@ The execution scripts will automatically:
 ### For Windows Users
 Simply double-click the `run_test_windows.bat` file in your file explorer, or execute it via terminal:
 ```cmd
-run_tests.bat
+run_test_windows.bat
 ```
 
 ### For macOS / Linux Users
