@@ -3,7 +3,12 @@ name: Hourly AccuWeather Automation
 # This triggers the test to run automatically
 on:
   schedule:
-    - cron: '30  * * * *'
+    # Runs at minute 30 pass every hour (e.g., 00:30, 01:30, 02:30, etc.)
+    # - cron: '30  * * * *'
+
+    # Reduce frequency to every 4 hours
+    # Runs at minute 10 past every 4th hour (e.g., 00:10, 04:10, 08:10, etc.)
+    - cron: '10 */4 * * *'
 
   # Allows you to click a button in GitHub to run it manually at any time
   workflow_dispatch:
