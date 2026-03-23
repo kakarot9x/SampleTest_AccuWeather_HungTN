@@ -50,6 +50,19 @@ def pytest_runtest_makereport(item, call):
     rep = outcome.get_result()
     setattr(item, "rep_" + rep.when, rep)
 
+def block_ads_and_trackers(route):
+    """Aborts requests to known ad and tracking domains."""
+    ad_domains = [
+        "doubleclick.net", "googleads.g.doubleclick.net",
+        "criteo.com", "adsystem.com", "adnxs.com",
+        "googlesyndication.com", "rubiconproject.com",
+        "amazon-adsystem.com", "pubmatic.com"
+    ]
+    if any(domain in route.request.url for domain in ad_domains):
+        route.abort()
+    else:
+        route.continue_()
+
 
 @pytest.fixture(scope="function")
 def page(request):
@@ -114,6 +127,7 @@ def page(request):
                 log.info("Lock claimed. Performing one-time global setup...")
                 try:
                     setup_context = browser.new_context(**context_kwargs)
+                    setup_context.route("**/*", block_ads_and_trackers)
                     setup_page = setup_context.new_page()
                     setup_home = HomePage(setup_page)
 
@@ -130,6 +144,7 @@ def page(request):
 
         # Standard context injection for the actual test execution
         context = browser.new_context(**context_kwargs, storage_state=STATE_FILE)
+        context.route("**/*", block_ads_and_trackers)
         test_page: Page = context.new_page()
 
         yield test_page
